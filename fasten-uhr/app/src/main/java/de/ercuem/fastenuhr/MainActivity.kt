@@ -63,10 +63,12 @@ class MainActivity : ComponentActivity() {
                     onSave = {
                         prefs.edit().putLong(KEY_START, it).apply()
                         Alarm.schedule(this, it)
+                        FastenComplicationService.aktualisieren(this)
                     },
                     onReset = {
                         prefs.edit().remove(KEY_START).apply()
                         Alarm.cancel(this)
+                        FastenComplicationService.aktualisieren(this)
                     },
                     onZiel = { std ->
                         prefs.edit().putInt(KEY_ZIEL, std).apply()

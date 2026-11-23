@@ -1,6 +1,9 @@
 package de.ercuem.fastenuhr
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,19 +42,37 @@ import androidx.wear.compose.material.Text
 import kotlinx.coroutines.delay
 import java.util.Calendar
 
-private const val PREFS = "fasten"
-private const val KEY_START = "start"
+const val PREFS = "fasten"
+const val KEY_START = "start"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // Ab Android 13 muss man Benachrichtigungen einmal erlauben
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
         setContent {
             MaterialTheme {
                 FastenScreen(
                     initialStart = prefs.getLong(KEY_START, 0L),
-                    onSave = { prefs.edit().putLong(KEY_START, it).apply() },
-                    onReset = { prefs.edit().remove(KEY_START).apply() },
+                    initialZiel = zielStd(this),
+                    onSave = {
+                        prefs.edit().putLong(KEY_START, it).apply()
+                        Alarm.schedule(this, it)
+                    },
+                    onReset = {
+                        prefs.edit().remove(KEY_START).apply()
+                        Alarm.cancel(this)
+                    },
+                    onZiel = { std ->
+                        prefs.edit().putInt(KEY_ZIEL, std).apply()
+                        val start = prefs.getLong(KEY_START, 0L)
+                        if (start != 0L) Alarm.schedule(this, start)
+                    },
                 )
             }
         }
@@ -58,7 +80,14 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun FastenScreen(initialStart: Long, onSave: (Long) -> Unit, onReset: () -> Unit) {
+fun FastenScreen(
+    initialStart: Long,
+    initialZiel: Int,
+    onSave: (Long) -> Unit,
+    onReset: () -> Unit,
+    onZiel: (Int) -> Unit,
+) {
+    var ziel by remember { mutableIntStateOf(initialZiel) }
     var start by remember { mutableLongStateOf(initialStart) } // 0 = nichts erfasst
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -117,13 +146,25 @@ fun FastenScreen(initialStart: Long, onSave: (Long) -> Unit, onReset: () -> Unit
             label = { Text("Gegessen", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
             modifier = Modifier.fillMaxWidth(),
         )
-        if (start != 0L) {
-            Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.Center) {
+            // Ziel umschalten: 4 -> 8 -> 16 -> 4 Std.
             CompactChip(
-                onClick = { confirmReset = true },
-                label = { Text("Reset") },
+                onClick = {
+                    ziel = ZIEL_STUFEN[(ZIEL_STUFEN.indexOf(ziel) + 1) % ZIEL_STUFEN.size]
+                    onZiel(ziel)
+                },
+                label = { Text("Ziel $ziel Std.") },
                 colors = ChipDefaults.secondaryChipColors(),
             )
+            if (start != 0L) {
+                Spacer(Modifier.width(6.dp))
+                CompactChip(
+                    onClick = { confirmReset = true },
+                    label = { Text("Reset") },
+                    colors = ChipDefaults.secondaryChipColors(),
+                )
+            }
         }
     }
 }
